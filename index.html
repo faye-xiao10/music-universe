@@ -14,8 +14,8 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: #e8e8ef;
   }
-  svg { display: block; width: 100vw; height: 100vh; cursor: grab; }
-  svg:active { cursor: grabbing; }
+  #graph { display: block; width: 100vw; height: 100vh; cursor: grab; }
+  #graph:active { cursor: grabbing; }
 
   .node-image { pointer-events: none; }
   .node-ring { stroke-width: 1.2px; }
@@ -176,7 +176,7 @@
   <div>Run <code>node fetch-data.js</code> first, then serve this folder (e.g. <code>npx serve .</code>) instead of opening the file directly.</div>
 </div>
 
-<svg></svg>
+<svg id="graph"></svg>
 
 <script>
 (async function () {
@@ -285,7 +285,7 @@
 
   // --- svg + forces --------------------------------------------------------
   const width = window.innerWidth, height = window.innerHeight;
-  const svg = d3.select("svg").attr("viewBox", [-width / 2, -height / 2, width, height]);
+  const svg = d3.select("#graph").attr("viewBox", [-width / 2, -height / 2, width, height]);
   const g = svg.append("g");
   const zoom = d3.zoom().scaleExtent([0.05, 6]).on("zoom", (e) => g.attr("transform", e.transform));
   svg.call(zoom);
