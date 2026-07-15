@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Spotify Listening Trends</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: radial-gradient(ellipse at center, #0e1018 0%, #07080d 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #e8e8ef;
+  }
+  svg { display: block; width: 100vw; height: 100vh; cursor: grab; }
+  svg:active { cursor: grabbing; }
+
+  .node-image { pointer-events: none; }
+  .node-ring { stroke-width: 1.2px; }
+  .node-ring.bridge { stroke: #ffd76a; stroke-width: 2px; }
+  .node-label {
+    font-size: 11px; fill: #cfd2e0; pointer-events: none;
+    text-anchor: middle; paint-order: stroke; stroke: #07080d; stroke-width: 3.5px;
+  }
+  .node-label.genre-label { font-size: 14px; font-weight: 700; fill: #fff; letter-spacing: 0.01em; }
+
+  #hud {
+    position: fixed; top: 16px; left: 16px; z-index: 10;
+    display: flex; flex-direction: column; gap: 10px; max-width: 280px;
+  }
+  #search {
+    background: rgba(20, 22, 32, 0.9); border: 1px solid #2a2d3d;
+    border-radius: 8px; padding: 10px 12px; color: #e8e8ef; font-size: 13px;
+    outline: none; backdrop-filter: blur(6px);
+  }
+  #search:focus { border-color: #6c7bff; }
+  #title {
+    background: rgba(20, 22, 32, 0.9); border: 1px solid #2a2d3d;
+    border-radius: 8px; padding: 12px 14px; backdrop-filter: blur(6px);
+  }
+  #title h1 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+  #title p { font-size: 12px; margin: 0; color: #8b8fa3; line-height: 1.5; }
+  #title .counts { margin-top: 6px; color: #a7abc0; font-variant-numeric: tabular-nums; }
+
+  #legend {
+    position: fixed; top: 16px; right: 16px; z-index: 10;
+    background: rgba(20, 22, 32, 0.9); border: 1px solid #2a2d3d;
+    border-radius: 8px; padding: 10px 12px; max-height: calc(100vh - 32px);
+    overflow-y: auto; backdrop-filter: blur(6px); width: 195px;
+  }
+  #legend h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: #8b8fa3; margin: 0 0 8px;
+  }
+  .legend-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    padding: 3px 5px; cursor: pointer; border-radius: 4px;
+  }
+  .legend-row:hover { background: rgba(255,255,255,0.06); }
+  .legend-swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .legend-count { margin-left: auto; color: #7c8098; font-variant-numeric: tabular-nums; font-size: 11px; }
+  .legend-row.dim { opacity: 0.35; }
+
+  #controls {
+    position: fixed; bottom: 16px; left: 16px; z-index: 10;
+    background: rgba(20, 22, 32, 0.9); border: 1px solid #2a2d3d;
+    border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(6px);
+    width: 220px; font-size: 12px;
+  }
+  #controls h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: #8b8fa3; margin: 0 0 8px; display: flex; justify-content: space-between;
+    align-items: center; cursor: pointer;
+  }
+  #controls.collapsed .ctrl-body { display: none; }
+  #controls h2 .chev { transition: transform 0.15s; }
+  #controls.collapsed h2 .chev { transform: rotate(-90deg); }
+  .ctrl-row { margin-bottom: 8px; }
+  .ctrl-row:last-child { margin-bottom: 0; }
+  .ctrl-row label { display: flex; justify-content: space-between; color: #b9bccc; margin-bottom: 3px; }
+  .ctrl-row label span { color: #7c8098; font-variant-numeric: tabular-nums; }
+  .ctrl-row input[type=range] { width: 100%; accent-color: #6c7bff; margin: 0; }
+  .ctrl-btns { display: flex; gap: 6px; margin-top: 10px; }
+  .ctrl-btns button {
+    flex: 1; background: #262a3b; border: 1px solid #363b52; color: #e8e8ef;
+    border-radius: 6px; padding: 6px 0; font-size: 11px; cursor: pointer;
+  }
+  .ctrl-btns button:hover { background: #303552; }
+
+  #tooltip {
+    position: fixed; z-index: 20; pointer-events: none;
+    background: rgba(13, 15, 24, 0.98); border: 1px solid #33364a;
+    border-radius: 10px; padding: 11px 13px; font-size: 12px; max-width: 260px;
+    display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  }
+  #tooltip .tt-kicker {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent, #8b8fa3); margin-bottom: 3px; font-weight: 600;
+  }
+  #tooltip .tt-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; line-height: 1.25; }
+  #tooltip .tt-sub { color: #b9bccc; margin-bottom: 8px; }
+  #tooltip .tt-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin-bottom: 8px; }
+  #tooltip .tt-stats dt { color: #8b8fa3; }
+  #tooltip .tt-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: #e8e8ef; }
+  #tooltip .tt-pending { color: #71748a; font-style: italic; margin-bottom: 8px; font-size: 11px; }
+  #tooltip .tt-inter { border-top: 1px solid #262838; padding-top: 7px; color: #b9bccc; }
+  #tooltip .tt-inter b { color: #fff; font-weight: 600; }
+  #tooltip a { color: #6c9bff; text-decoration: none; font-size: 11px; }
+
+  #empty {
+    position: fixed; inset: 0; display: none; align-items: center;
+    justify-content: center; flex-direction: column; gap: 12px; text-align: center; padding: 24px;
+  }
+  #empty.show { display: flex; }
+  #empty code { background: #1a1c28; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="title">
+    <h1>Your Spotify universe</h1>
+    <p>Drag to rearrange &middot; scroll to zoom &middot; click a genre to isolate it. Gold rings are cross-genre collaborations.</p>
+    <p class="counts" id="counts"></p>
+  </div>
+  <input id="search" type="text" placeholder="Search tracks, artists, genres..." />
+</div>
+
+<div id="legend"><h2>Genres</h2><div id="legend-rows"></div></div>
+
+<div id="controls">
+  <h2 id="controls-toggle">Forces <span class="chev">▾</span></h2>
+  <div class="ctrl-body" id="controls-body"></div>
+  <div class="ctrl-btns">
+    <button id="ctrl-reheat">Reheat</button>
+    <button id="ctrl-reset">Reset</button>
+  </div>
+</div>
+<div id="tooltip"></div>
+<div id="empty">
+  <div>Couldn't load <code>data.json</code>.</div>
+  <div>Run <code>node fetch-data.js</code> first, then serve this folder (e.g. <code>npx serve .</code>) instead of opening the file directly.</div>
+</div>
+
+<svg></svg>
+
+<script>
+(async function () {
+  let data;
+  try {
+    const res = await fetch("data.json");
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (err) {
+    document.getElementById("empty").classList.add("show");
+    return;
+  }
+
+  const nodes = data.nodes.map((d) => ({ ...d }));
+  const links = data.links.map((d) => ({ ...d }));
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const hasPlayCounts = data.hasPlayCounts;
+
+  function slugifyGenre(g) {
+    return g.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  }
+  const genreIdOfName = (name) => (name ? "genre:" + slugifyGenre(name) : null);
+
+  // --- adjacency + per-node genre assignment -------------------------------
+  const neighbors = new Map(nodes.map((n) => [n.id, new Set()]));
+  const artistTrackCount = new Map(); // artist id -> # liked tracks
+  links.forEach((l) => {
+    neighbors.get(l.source)?.add(l.target);
+    neighbors.get(l.target)?.add(l.source);
+    if (l.kind === "track-artist") {
+      artistTrackCount.set(l.target, (artistTrackCount.get(l.target) ?? 0) + 1);
+    }
+  });
+
+  // Each artist carries a primary genre (for coloring) and a full genre list.
+  const artistPrimaryGenreId = new Map(); // artist id -> primary genre id
+  const artistGenreIds = new Map();       // artist id -> [genreId, ...]
+  nodes.forEach((n) => {
+    if (n.tier !== "artist") return;
+    const gids = [...new Set((n.genres || []).map(genreIdOfName).filter(Boolean))];
+    artistGenreIds.set(n.id, gids);
+    artistPrimaryGenreId.set(n.id, gids[0] ?? null);
+  });
+
+  // track -> credited artist ids (for coloring + collab bridge detection)
+  const trackArtistIds = new Map();
+  links.forEach((l) => {
+    if (l.kind !== "track-artist") return;
+    if (!trackArtistIds.has(l.source)) trackArtistIds.set(l.source, []);
+    trackArtistIds.get(l.source).push(l.target);
+  });
+
+  // Genre intersections: an artist tagged with several genres bridges them
+  // (e.g. symphonic metal ↔ celtic ↔ instrumental for Nightwish). This is the
+  // primary "shared" signal that connects otherwise separate clusters.
+  const genreGenreShared = new Map(); // genreId -> Map(otherGenreId -> count)
+  function bumpShared(a, b) {
+    if (!genreGenreShared.has(a)) genreGenreShared.set(a, new Map());
+    const m = genreGenreShared.get(a);
+    m.set(b, (m.get(b) ?? 0) + 1);
+  }
+  artistGenreIds.forEach((gids) => {
+    for (let i = 0; i < gids.length; i++)
+      for (let j = i + 1; j < gids.length; j++) { bumpShared(gids[i], gids[j]); bumpShared(gids[j], gids[i]); }
+  });
+
+  // Assign a primary genre id per node (for coloring); flag cross-genre collabs.
+  nodes.forEach((n) => {
+    if (n.tier === "genre") { n.genreId = n.id; return; }
+    if (n.tier === "artist") { n.genreId = artistPrimaryGenreId.get(n.id) ?? null; return; }
+    const artists = trackArtistIds.get(n.id) ?? [];
+    n.genreId = artists.length ? artistPrimaryGenreId.get(artists[0]) ?? null : null;
+    const primarySet = new Set(artists.map((a) => artistPrimaryGenreId.get(a)).filter(Boolean));
+    if (primarySet.size > 1) n.isBridge = true; // collaboration across genres
+  });
+
+  const genreNodes = nodes.filter((n) => n.tier === "genre");
+  genreNodes.sort((a, b) => (b.stats?.tracks ?? 0) - (a.stats?.tracks ?? 0));
+
+  // Golden-angle hue rotation so even adjacent-by-size genres get well-
+  // separated, vivid colors on the dark background.
+  const genreColorById = new Map();
+  genreNodes.forEach((gN, i) => genreColorById.set(gN.id, d3.hsl((i * 137.508) % 360, 0.62, 0.62).formatHex()));
+  const FALLBACK = "#4a4e63";
+  const colorOf = (id) => genreColorById.get(id) || FALLBACK;
+
+  // --- sizing --------------------------------------------------------------
+  const genreR = d3.scaleSqrt().domain([1, d3.max(genreNodes, (g) => g.stats?.tracks ?? 1) || 1]).range([20, 60]);
+  const artistR = d3.scaleSqrt().domain([1, d3.max(nodes, (n) => (n.tier === "artist" ? artistTrackCount.get(n.id) ?? 1 : 1)) || 1]).range([4, 22]);
+  const trackR = d3.scaleSqrt().domain([0, 100]).range([6, 13]);
+  function radiusOf(n) {
+    if (n.tier === "genre") return genreR(n.stats?.tracks ?? 1);
+    if (n.tier === "artist") return artistR(artistTrackCount.get(n.id) ?? 1);
+    return n.affinity > 0 ? trackR(n.affinity) : 3.3; // most tracks: tiny dots
+  }
+  nodes.forEach((n) => { n.r = radiusOf(n); });
+  // Album art only for your top tracks (keeps ~1500-node graph performant).
+  const showsArt = (n) => n.tier === "track" && n.affinity > 0 && !!n.image;
+  // Draw order: tiny track dots first, then artists, genres + labels on top.
+  const drawOrder = { track: 0, artist: 1, genre: 2 };
+  nodes.sort((a, b) => drawOrder[a.tier] - drawOrder[b.tier]);
+
+  const totalTracks = nodes.filter((n) => n.tier === "track").length;
+  document.getElementById("counts").textContent =
+    `${totalTracks} tracks · ${nodes.filter((n) => n.tier === "artist").length} artists · ${genreNodes.length} genres`;
+
+  // --- svg + forces --------------------------------------------------------
+  const width = window.innerWidth, height = window.innerHeight;
+  const svg = d3.select("svg").attr("viewBox", [-width / 2, -height / 2, width, height]);
+  const g = svg.append("g");
+  const zoom = d3.zoom().scaleExtent([0.05, 6]).on("zoom", (e) => g.attr("transform", e.transform));
+  svg.call(zoom);
+  const defs = svg.append("defs");
+
+  const linkSel = g.append("g")
+    .selectAll("line").data(links).join("line")
+    .attr("stroke", (d) => (d.kind === "track-artist" ? "#14161f" : "#1b1d2b"))
+    .attr("stroke-opacity", 0.9)
+    .attr("stroke-width", 0.7);
+
+  const nodeSel = g.append("g").selectAll("g.node").data(nodes).join("g")
+    .attr("class", "node").style("cursor", "pointer").call(drag());
+
+  nodeSel.append("circle")
+    .attr("class", (d) => "node-ring" + (d.isBridge ? " bridge" : ""))
+    .attr("r", (d) => d.r)
+    .attr("fill", (d) => (showsArt(d) ? "#1a1c28" : colorOf(d.genreId)))
+    .attr("stroke", (d) => (d.isBridge ? "#ffd76a" : d3.color(colorOf(d.genreId))?.brighter(0.4)))
+    .attr("fill-opacity", (d) => (d.tier === "genre" ? 0.22 : d.tier === "track" && !showsArt(d) ? 0.85 : 1));
+
+  nodeSel.filter(showsArt).each(function (d) {
+    const clipId = "clip-" + d.id.replace(/[^a-zA-Z0-9]/g, "");
+    defs.append("clipPath").attr("id", clipId).append("circle").attr("r", d.r - 1);
+    d3.select(this).append("image")
+      .attr("class", "node-image").attr("href", d.image)
+      .attr("x", -d.r).attr("y", -d.r).attr("width", d.r * 2).attr("height", d.r * 2)
+      .attr("clip-path", `url(#${clipId})`).attr("preserveAspectRatio", "xMidYMid slice");
+  });
+
+  // Label only the meaningful genres to cut clutter; the rest live in the
+  // legend and appear on hover.
+  nodeSel.filter((d) => d.tier === "genre" && (d.stats?.tracks ?? 0) >= 8).append("text")
+    .attr("class", "node-label genre-label")
+    .attr("dy", (d) => d.r + 16).text((d) => d.name);
+
+  // Tunable force parameters (live-adjustable via the controls panel).
+  const params = {
+    charge: 1,        // repulsion multiplier
+    linkDistance: 1,  // link-length multiplier
+    linkStrength: 1,  // link-stiffness multiplier
+    collide: 1.5,     // extra collision padding (px)
+    gravity: 0.015,   // pull toward center
+  };
+  const baseCharge = (d) => (d.tier === "genre" ? -420 : d.tier === "artist" ? -60 : -14);
+  const baseLinkDist = (l) => (l.kind === "artist-genre" ? 55 : 22);
+  const baseLinkStr = (l) => (l.kind === "artist-genre" ? 0.6 : 0.35);
+
+  const forceLink = d3.forceLink(links).id((d) => d.id);
+  const forceCharge = d3.forceManyBody().distanceMax(600);
+  const forceCollide = d3.forceCollide().iterations(1);
+  const forceGX = d3.forceX();
+  const forceGY = d3.forceY();
+
+  function applyParams() {
+    forceLink.distance((l) => baseLinkDist(l) * params.linkDistance)
+      .strength((l) => Math.min(1, baseLinkStr(l) * params.linkStrength));
+    forceCharge.strength((d) => baseCharge(d) * params.charge);
+    forceCollide.radius((d) => d.r + params.collide);
+    forceGX.strength(params.gravity);
+    forceGY.strength(params.gravity);
+  }
+  applyParams();
+
+  const simulation = d3.forceSimulation(nodes)
+    .force("link", forceLink)
+    .force("charge", forceCharge)
+    .force("collide", forceCollide)
+    .force("x", forceGX)
+    .force("y", forceGY)
+    .alphaDecay(0.028);
+
+  function reheat(alpha = 0.4) { simulation.alpha(alpha).restart(); }
+
+  simulation.on("tick", () => {
+    linkSel
+      .attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
+      .attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
+    nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
+  });
+
+  function drag() {
+    function started(event, d) { if (!event.active) simulation.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; }
+    function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+    function ended(event, d) { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+    return d3.drag().on("start", started).on("drag", dragged).on("end", ended);
+  }
+
+  // --- tooltip -------------------------------------------------------------
+  const tooltip = document.getElementById("tooltip");
+  const fmt = (n) => n.toLocaleString();
+
+  function tooltipHTML(d) {
+    const accent = colorOf(d.genreId);
+    if (d.tier === "track") {
+      const pending = !hasPlayCounts;
+      const stats = [];
+      if (hasPlayCounts) {
+        stats.push(`<dt>Plays (last year)</dt><dd>${d.plays != null ? fmt(d.plays) : "0"}</dd>`);
+        stats.push(`<dt>Listening time</dt><dd>${d.minutesListened != null ? fmt(d.minutesListened) + " min" : "0 min"}</dd>`);
+      }
+      if (d.affinity > 0) stats.push(`<dt>Top-track affinity</dt><dd>${d.affinity}/100</dd>`);
+      return `
+        <div class="tt-kicker" style="--accent:${accent}">${d.isBridge ? "Cross-genre collab" : "Track"}</div>
+        <div class="tt-name">${esc(d.name)}</div>
+        <div class="tt-sub">${esc((d.artistNames || []).join(", "))}</div>
+        ${stats.length ? `<dl class="tt-stats">${stats.join("")}</dl>` : ""}
+        ${pending ? `<div class="tt-pending">Play count &amp; listening time need Spotify's data export</div>` : ""}
+        ${d.spotifyUrl ? `<a href="${d.spotifyUrl}" target="_blank" rel="noopener">Open in Spotify &rarr;</a>` : ""}
+      `;
+    }
+    if (d.tier === "artist") {
+      const tracks = artistTrackCount.get(d.id) ?? 0;
+      return `
+        <div class="tt-kicker" style="--accent:${accent}">Artist${d.affinity > 0 ? " · top artist" : ""}</div>
+        <div class="tt-name">${esc(d.name)}</div>
+        <dl class="tt-stats">
+          <dt>Liked tracks</dt><dd>${fmt(tracks)}</dd>
+          ${(d.genres && d.genres.length) ? `<dt>Genres</dt><dd>${esc(d.genres.join(", "))}</dd>` : ""}
+        </dl>
+        ${d.spotifyUrl ? `<a href="${d.spotifyUrl}" target="_blank" rel="noopener">Open in Spotify &rarr;</a>` : ""}
+      `;
+    }
+    // genre
+    const s = d.stats || {};
+    const share = totalTracks ? Math.round((s.tracks / totalTracks) * 100) : 0;
+    const shared = [...(genreGenreShared.get(d.id)?.entries() ?? [])]
+      .sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([gid, c]) => `<b>${esc(nodeById.get(gid)?.name ?? gid)}</b> (${c})`);
+    return `
+      <div class="tt-kicker" style="--accent:${accent}">Genre</div>
+      <div class="tt-name">${esc(d.name)}</div>
+      <dl class="tt-stats">
+        <dt>Tracks</dt><dd>${fmt(s.tracks ?? 0)}</dd>
+        <dt>Artists</dt><dd>${fmt(s.artists ?? 0)}</dd>
+        <dt>Share of library</dt><dd>${share}%</dd>
+        ${hasPlayCounts && s.plays ? `<dt>Plays (last year)</dt><dd>${fmt(s.plays)}</dd>` : ""}
+        ${hasPlayCounts && s.minutes ? `<dt>Listening time</dt><dd>${fmt(Math.round(s.minutes / 60))} h</dd>` : ""}
+        ${s.topTrack ? `<dt>Top track</dt><dd>${esc(s.topTrack)}</dd>` : ""}
+      </dl>
+      ${shared.length ? `<div class="tt-inter">Bridges into ${shared.join(", ")}</div>` : ""}
+    `;
+  }
+  function esc(str) { return String(str).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  function showTooltip(event, d) {
+    tooltip.innerHTML = tooltipHTML(d);
+    tooltip.style.display = "block";
+    moveTooltip(event);
+  }
+  function moveTooltip(event) {
+    const pad = 16, w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+    let x = event.clientX + pad, y = event.clientY + pad;
+    if (x + w > window.innerWidth) x = event.clientX - w - pad;
+    if (y + h > window.innerHeight) y = event.clientY - h - pad;
+    tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
+  }
+  function hideTooltip() { tooltip.style.display = "none"; }
+  document.addEventListener("mousemove", (e) => {
+    if (tooltip.style.display === "block" && !e.target.closest("g.node, .legend-row")) hideTooltip();
+  });
+  window.addEventListener("wheel", hideTooltip, { passive: true });
+
+  // --- focus / isolate -----------------------------------------------------
+  function neighborhoodOf(id, hops) {
+    let frontier = new Set([id]); const visited = new Set([id]);
+    for (let i = 0; i < hops; i++) {
+      const next = new Set();
+      frontier.forEach((nid) => (neighbors.get(nid) ?? new Set()).forEach((m) => { if (!visited.has(m)) { next.add(m); visited.add(m); } }));
+      frontier = next;
+    }
+    return visited;
+  }
+  function applyFocus(activeSet) {
+    if (!activeSet) {
+      nodeSel.style("opacity", 1);
+      linkSel.style("opacity", 0.9);
+      d3.selectAll(".legend-row").classed("dim", false);
+      return;
+    }
+    nodeSel.style("opacity", (d) => (activeSet.has(d.id) ? 1 : 0.06));
+    linkSel.style("opacity", (d) => (activeSet.has(d.source.id ?? d.source) && activeSet.has(d.target.id ?? d.target) ? 0.85 : 0.02));
+    d3.selectAll(".legend-row").classed("dim", function () { return !activeSet.has(d3.select(this).attr("data-genre")); });
+  }
+
+  let isolated = null;
+  nodeSel
+    .on("mouseenter", (event, d) => showTooltip(event, d))
+    .on("mousemove", moveTooltip)
+    .on("mouseleave", hideTooltip)
+    .on("click", (event, d) => {
+      event.stopPropagation();
+      if (d.tier !== "genre") return;
+      if (isolated === d.id) { isolated = null; applyFocus(null); }
+      else { isolated = d.id; applyFocus(neighborhoodOf(d.id, 2)); }
+    });
+  svg.on("click", () => { isolated = null; applyFocus(null); });
+
+  // --- legend --------------------------------------------------------------
+  const legendRows = d3.select("#legend-rows").selectAll(".legend-row").data(genreNodes).join("div")
+    .attr("class", "legend-row").attr("data-genre", (d) => d.id)
+    .on("mouseenter", (event, d) => applyFocus(neighborhoodOf(d.id, 2)))
+    .on("mouseleave", () => applyFocus(isolated ? neighborhoodOf(isolated, 2) : null))
+    .on("click", (event, d) => {
+      if (isolated === d.id) { isolated = null; applyFocus(null); }
+      else { isolated = d.id; applyFocus(neighborhoodOf(d.id, 2)); }
+    });
+  legendRows.append("div").attr("class", "legend-swatch").style("background", (d) => colorOf(d.id));
+  legendRows.append("div").text((d) => d.name);
+  legendRows.append("div").attr("class", "legend-count").text((d) => d.stats?.tracks ?? 0);
+
+  // --- search --------------------------------------------------------------
+  const searchInput = document.getElementById("search");
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) { isolated = null; applyFocus(null); return; }
+    const matched = new Set(nodes.filter((n) =>
+      n.name.toLowerCase().includes(q) || (n.artistNames || []).some((a) => a.toLowerCase().includes(q))
+    ).map((n) => n.id));
+    applyFocus(matched.size ? matched : new Set());
+  });
+
+  window.addEventListener("resize", () => {
+    const w = window.innerWidth, h = window.innerHeight;
+    svg.attr("viewBox", [-w / 2, -h / 2, w, h]);
+  });
+
+  // --- force controls ------------------------------------------------------
+  const DEFAULTS = { ...params };
+  const SLIDERS = [
+    { key: "charge",       label: "Repulsion",     min: 0.2, max: 3,    step: 0.1,   fmt: (v) => v.toFixed(1) + "×" },
+    { key: "linkDistance", label: "Link length",   min: 0.3, max: 3,    step: 0.1,   fmt: (v) => v.toFixed(1) + "×" },
+    { key: "linkStrength", label: "Link strength", min: 0.1, max: 2,    step: 0.1,   fmt: (v) => v.toFixed(1) + "×" },
+    { key: "collide",      label: "Spacing",       min: 0,   max: 12,   step: 0.5,   fmt: (v) => v.toFixed(1) + "px" },
+    { key: "gravity",      label: "Gravity",       min: 0,   max: 0.08, step: 0.005, fmt: (v) => v.toFixed(3) },
+  ];
+  const controlsBody = document.getElementById("controls-body");
+  function buildControls() {
+    controlsBody.innerHTML = "";
+    for (const s of SLIDERS) {
+      const row = document.createElement("div");
+      row.className = "ctrl-row";
+      row.innerHTML =
+        `<label>${s.label}<span data-val="${s.key}">${s.fmt(params[s.key])}</span></label>` +
+        `<input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${params[s.key]}" data-key="${s.key}">`;
+      const input = row.querySelector("input");
+      const valEl = row.querySelector("[data-val]");
+      input.addEventListener("input", () => {
+        params[s.key] = +input.value;
+        valEl.textContent = s.fmt(params[s.key]);
+        applyParams();
+        reheat(0.35);
+      });
+      controlsBody.appendChild(row);
+    }
+  }
+  buildControls();
+
+  document.getElementById("ctrl-reheat").addEventListener("click", () => reheat(0.7));
+  document.getElementById("ctrl-reset").addEventListener("click", () => {
+    Object.assign(params, DEFAULTS);
+    applyParams();
+    buildControls();
+    reheat(0.7);
+  });
+  document.getElementById("controls-toggle").addEventListener("click", () => {
+    document.getElementById("controls").classList.toggle("collapsed");
+  });
+})();
+</script>
+</body>
+</html>

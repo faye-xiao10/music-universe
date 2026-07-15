@@ -1,0 +1,9 @@
+# Secrets — NEVER commit
+.env
+
+# Local caches / deps (not needed for the deployed static site)
+genre-cache.json
+node_modules/
+
+# NOTE: data.json IS committed on purpose — it's the data the deployed
+# visual reads. It contains your listening data, so the site is public.

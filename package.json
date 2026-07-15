@@ -1,0 +1,10 @@
+{
+  "name": "spotify-music-trends",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch": "node fetch-data.js",
+    "serve": "npx --yes serve ."
+  }
+}
